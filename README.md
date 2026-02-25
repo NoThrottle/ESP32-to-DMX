@@ -41,10 +41,12 @@ A firmware for the **ESP32-C6-DevKitC-1** that turns the board into a profession
 | GPIO | Purpose |
 |---|---|
 | GPIO 8 | Status LED (onboard) |
-| USB-C (native) | ENTTEC DMX USB Pro interface |
-| USB-C (CH340) | Config/debug terminal at 115200 baud |
+| USB-C (native) | **CDC0** — ENTTEC DMX USB Pro interface + **CDC1** — config terminal |
+| USB-C (CH340) | Firmware flashing only (`pio run --target upload`) |
 
 > **Note:** Tie the MAX485 DE and /RE pins together to a single GPIO. Drive HIGH for transmit, LOW for receive.
+>
+> When plugged into a PC the native USB-C enumerates **two virtual COM ports** simultaneously — one for DMX software (ENTTEC CDC0) and one for the config terminal (CDC1). Use any serial terminal (PuTTY, `pio device monitor`) on the second port.
 
 ---
 
@@ -52,12 +54,13 @@ A firmware for the **ESP32-C6-DevKitC-1** that turns the board into a profession
 
 1. Install [PlatformIO](https://platformio.org/)
 2. Clone or download this project
-3. Connect the **CH340 USB-C port** (not the native USB)
+3. Connect the **CH340 USB-C port** (used for flashing only)
 4. Run:
    ```
    pio run --target upload
    ```
-5. Open the serial monitor at **115200 baud** on the CH340 COM port:
+5. Disconnect the CH340 cable, connect the **native USB-C** port to your PC.
+6. Two COM ports appear. Open the **second** one (CDC1) in a terminal at any baud rate:
    ```
    pio device monitor --baud 115200
    ```
@@ -66,7 +69,14 @@ A firmware for the **ESP32-C6-DevKitC-1** that turns the board into a profession
 
 ## Serial Configuration Terminal
 
-Connect to the **CH340 COM port** at **115200 baud**. Send plain-text commands terminated with `\n`.
+Connect the **native USB-C** port to your PC. Two virtual COM ports will appear:
+
+| COM port | Purpose |
+|---|---|
+| First (lower number) | ENTTEC DMX USB Pro — point your lighting software here |
+| Second (higher number) | Config terminal — open with any serial terminal app |
+
+Send plain-text commands terminated with `\n`.
 
 ### Commands
 
@@ -75,8 +85,10 @@ Connect to the **CH340 COM port** at **115200 baud**. Send plain-text commands t
 | `HELP` | List all commands |
 | `STATUS` | Print current config as JSON |
 | `CONFIG {...}` | Update one or more settings (JSON) |
+| `DMXMON ON` | Enable live DMX channel monitor (prints ~4 Hz, not persisted) |
+| `DMXMON OFF` | Disable live DMX channel monitor |
 | `REBOOT` | Restart the device |
-| `RESET` | Factory reset all settings |
+| `RESET` | Factory reset all settings and reboot |
 
 ### CONFIG Fields
 
@@ -95,6 +107,8 @@ Connect to the **CH340 COM port** at **115200 baud**. Send plain-text commands t
 }
 ```
 
+> Valid mode values: `TX` (output), `RX` (input), `PASS` (passthrough — retransmits received frames on the same universe).  
+> For cross-port relay, set one universe to `RX` and the other to `TX` — received frames are automatically forwarded.  
 > Only include the fields you want to change — all others are left untouched.  
 > `ip` / `gw` / `subnet` are optional. Leave blank or omit for DHCP.  
 > After any `CONFIG` command the device saves and **reboots automatically**.

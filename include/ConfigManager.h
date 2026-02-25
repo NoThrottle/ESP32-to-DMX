@@ -7,7 +7,7 @@
 //  ConfigManager – NVS-backed configuration + serial commands
 // ============================================================
 //  Reads/writes config to NVS flash (survives reboots).
-//  Listens on HardwareSerial (CH340 COM port) for commands:
+//  Listens on USB CDC1 (native USB-C, second virtual COM) for commands:
 //
 //    CONFIG {...json...}   – set one or more config fields
 //    STATUS                – print current config as JSON
@@ -57,8 +57,15 @@ public:
     DMXNodeConfig& config() { return _cfg; }
     const DMXNodeConfig& config() const { return _cfg; }
 
+    // Runtime DMX monitor toggle (not persisted — resets on reboot)
+    bool isDMXMonitorEnabled() const { return _dmxMonitor; }
+    void setDMXMonitor(bool on)      { _dmxMonitor = on; }
+
     // Returns true if WiFi credentials have been configured
     bool hasWiFiCredentials() const;
+
+    // Set the output stream for all terminal responses (call before first feedChar)
+    void setOutput(Stream& s) { _out = &s; }
 
     // Process one character from the config serial port
     // Returns true if a full command was processed
@@ -74,6 +81,8 @@ private:
 
     DMXNodeConfig _cfg;
     Preferences   _prefs;
+    bool          _dmxMonitor = false;
+    Stream*       _out        = nullptr;
 
     char     _lineBuf[512];
     uint16_t _lineIdx;

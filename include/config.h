@@ -39,7 +39,8 @@
 #define WIFI_AP_PASS        "dmx12345"
 #define WIFI_AP_IP          "192.168.4.1"
 
-// --- Config serial (CH340 UART bridge port) -----------------
+// --- Config terminal (USB CDC1 on native USB-C) -------------
+// Baud rate is ignored for USB CDC but kept for reference.
 #define CONFIG_SERIAL_BAUD  115200
 
 // --- NVS namespace ------------------------------------------

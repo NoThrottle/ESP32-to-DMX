@@ -3,9 +3,9 @@
 //  main.cpp
 // ============================================================
 //  Protocols:
-//    USB (native):  ENTTEC DMX USB Pro (USB CDC)
-//    WiFi:          Art-Net 4 (UDP 6454)
-//    UART (CH340):  JSON config + status terminal
+//    USB (native) CDC0:  ENTTEC DMX USB Pro
+//    USB (native) CDC1:  JSON config + status terminal
+//    WiFi:               Art-Net 4 (UDP 6454)
 //
 //  Universes:
 //    U1 → UART0 (GPIO16/17) + MAX485 #1
@@ -13,9 +13,12 @@
 // ============================================================
 
 #include <Arduino.h>
+#include <USBCDC.h>
 
-// Note: With ARDUINO_USB_MODE=1 + ARDUINO_USB_CDC_ON_BOOT=1 on ESP32-C6,
-// 'Serial' IS the native USB-CDC (TinyUSB). No manual USBCDC instantiation needed.
+// CDC0 (Serial)       = ENTTEC DMX USB Pro binary protocol
+// CDC1 (ConfigSerial) = plain-text config terminal (CONFIG / STATUS / etc.)
+// Serial0             = UART0 hardware peripheral — used internally by DMX U1
+USBCDC ConfigSerial(1);
 
 #include "config.h"
 #include "ConfigManager.h"
@@ -28,8 +31,8 @@
 //  Global objects
 // ---------------------------------------------------------------------------
 
-// 'Serial'     = Native USB-CDC (ENTTEC DMX USB Pro interface)
-// 'Serial0'    = CH340 UART bridge on USB-C (config/debug terminal)
+// 'Serial'       = Native USB-CDC0 (ENTTEC DMX USB Pro interface)
+// 'ConfigSerial' = Native USB-CDC1 (plain-text config terminal)
 
 ConfigManager   cfgMgr;
 DMXPort         dmxU1(0, Serial0, DMX_U1_TX_PIN, DMX_U1_RX_PIN, DMX_U1_DERE_PIN);
@@ -74,6 +77,11 @@ void onArtNetFrame(uint16_t universe, const uint8_t* data, uint16_t len) {
 //  Callbacks: DMX RX → forward to ENTTEC host + Art-Net
 //  Called when a DMX frame is received from an external controller
 // ---------------------------------------------------------------------------
+
+// Monitor state — throttle prints to ~4 Hz to keep the terminal readable
+static uint8_t  _lastMonFrame[512]  = {};
+static uint32_t _lastMonPrintMs     = 0;
+
 void onDMXReceive(uint8_t port, const uint8_t* data, uint16_t len) {
     const auto& cfg = cfgMgr.config();
 
@@ -84,10 +92,43 @@ void onDMXReceive(uint8_t port, const uint8_t* data, uint16_t len) {
     uint16_t universe = (port == 0) ? cfg.u1Artnet : cfg.u2Artnet;
     artnet.sendDMX(universe, data, len);
 
-    // In PASSTHROUGH mode, also update the TX buffer of the same port
-    // so the DMX task retransmits it continuously
+    // Cross-port relay: U1(RX) → U2(TX) or U2(RX) → U1(TX)
+    if (port == 0 && cfg.u1Mode == DMXMode::RX)   dmxU2.setFrame(data, len);
+    if (port == 1 && cfg.u2Mode == DMXMode::RX)   dmxU1.setFrame(data, len);
+
+    // Same-port PASSTHROUGH: update the TX buffer so dmxTask retransmits it
     if (port == 0 && cfg.u1Mode == DMXMode::PASSTHROUGH) dmxU1.setFrame(data, len);
     if (port == 1 && cfg.u2Mode == DMXMode::PASSTHROUGH) dmxU2.setFrame(data, len);
+
+    // -----------------------------------------------------------------------
+    //  Live DMX monitor — prints changed non-zero channels at ~4 Hz
+    // -----------------------------------------------------------------------
+    if (cfgMgr.isDMXMonitorEnabled()) {
+        uint32_t now = millis();
+        if ((uint32_t)(now - _lastMonPrintMs) >= 250) {
+            _lastMonPrintMs = now;
+
+            uint16_t n = (len <= 512) ? len : 512;
+
+            // Check whether anything changed
+            bool changed = memcmp(_lastMonFrame, data, n) != 0;
+            if (changed) {
+                memcpy(_lastMonFrame, data, n);
+
+                // Print a compact line with all non-zero channels
+                ConfigSerial.printf("[DMX U%u]", port);
+                bool anyNonZero = false;
+                for (uint16_t i = 0; i < n; i++) {
+                    if (data[i] != 0) {
+                        ConfigSerial.printf(" ch%u=%u", i + 1, data[i]);
+                        anyNonZero = true;
+                    }
+                }
+                if (!anyNonZero) ConfigSerial.print(" (all zero)");
+                ConfigSerial.println();
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -110,11 +151,12 @@ void setup() {
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
 
-    // --- Config serial (CH340 UART bridge, 115200) ---
-    Serial0.begin(CONFIG_SERIAL_BAUD);
+    // --- Config terminal (USB CDC1) ---
+    ConfigSerial.begin(0);   // baud ignored for USB CDC
+    cfgMgr.setOutput(ConfigSerial);
     delay(500);
-    Serial0.println("\n\n=== ESP32-C6 DMX Node v1.0 ===");
-    Serial0.println("Type HELP for commands.");
+    ConfigSerial.println("\n\n=== ESP32-C6 DMX Node v1.0 ===");
+    ConfigSerial.println("Type HELP for commands.");
 
     // --- Native USB CDC is auto-started with ARDUINO_USB_CDC_ON_BOOT=1 ---
     // Serial (USB-CDC) is available without explicit begin()
@@ -129,11 +171,11 @@ void setup() {
     dmxU1.onReceive(onDMXReceive);
     dmxU2.onReceive(onDMXReceive);
 
-    Serial0.printf("[DMX] U1: UART0 TX=GPIO%d DE/RE=GPIO%d mode=%s\n",
+    ConfigSerial.printf("[DMX] U1: UART0 TX=GPIO%d DE/RE=GPIO%d mode=%s\n",
                   DMX_U1_TX_PIN, DMX_U1_DERE_PIN,
                   cfg.u1Mode == DMXMode::TX ? "TX" :
                   cfg.u1Mode == DMXMode::RX ? "RX" : "PASS");
-    Serial0.printf("[DMX] U2: UART1 TX=GPIO%d DE/RE=GPIO%d mode=%s\n",
+    ConfigSerial.printf("[DMX] U2: UART1 TX=GPIO%d DE/RE=GPIO%d mode=%s\n",
                   DMX_U2_TX_PIN, DMX_U2_DERE_PIN,
                   cfg.u2Mode == DMXMode::TX ? "TX" :
                   cfg.u2Mode == DMXMode::RX ? "RX" : "PASS");
@@ -141,19 +183,19 @@ void setup() {
     // --- ENTTEC USB Pro setup ---
     enttec.begin();
     enttec.onFrame(onEnttecFrame);
-    Serial0.println("[ENTTEC] Ready on Native USB — select 'ENTTEC USB Pro' in your software");
+    ConfigSerial.println("[ENTTEC] Ready on Native USB CDC0 — select 'ENTTEC USB Pro' in your software");
 
     // --- WiFi ---
     bool wifiOk = wifiMgr.begin(cfg);
     if (wifiOk) {
-        Serial0.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+        ConfigSerial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
     }
 
     // --- Art-Net (only useful if WiFi connected) ---
     if (wifiMgr.isConnected()) {
         artnet.onFrame(onArtNetFrame);
         artnet.begin("ESP32-DMX", cfg.artnetPort);
-        Serial0.printf("[ArtNet] U1=artnet:%d U2=artnet:%d\n",
+        ConfigSerial.printf("[ArtNet] U1=artnet:%d U2=artnet:%d\n",
                       cfg.u1Artnet, cfg.u2Artnet);
     }
 
@@ -170,10 +212,10 @@ void setup() {
 
     // --- Boot complete ---
     ledBlink(3, 80);
-    Serial0.println("[Boot] Ready.");
+    ConfigSerial.println("[Boot] Ready.");
     if (!wifiOk && !cfgMgr.hasWiFiCredentials()) {
-        Serial0.printf("[Boot] No WiFi configured. Connect to AP '%s' then send:\n", WIFI_AP_SSID);
-        Serial0.println("  CONFIG {\"ssid\":\"YourSSID\",\"pass\":\"YourPass\"}");
+        ConfigSerial.printf("[Boot] No WiFi configured. Connect to AP '%s' then send:\n", WIFI_AP_SSID);
+        ConfigSerial.println("  CONFIG {\"ssid\":\"YourSSID\",\"pass\":\"YourPass\"}");
     }
 }
 
@@ -187,9 +229,9 @@ void loop() {
     // Process Art-Net UDP packets
     artnet.tick();
 
-    // Process config terminal (CH340 UART bridge = Serial0)
-    while (Serial0.available()) {
-        cfgMgr.feedChar((char)Serial0.read());
+    // Process config terminal (USB CDC1 = ConfigSerial)
+    while (ConfigSerial.available()) {
+        cfgMgr.feedChar((char)ConfigSerial.read());
     }
 
     // Small yield so watchdog stays happy

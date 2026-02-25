@@ -84,12 +84,12 @@ bool ConfigManager::_processLine(const char* line) {
     while (*line == ' ') ++line;
 
     if (strncasecmp(line, "STATUS", 6) == 0) {
-        printStatus(Serial0);
+        printStatus(*_out);
         return true;
     }
 
     if (strncasecmp(line, "REBOOT", 6) == 0) {
-        Serial0.println("{\"status\":\"rebooting\"}");
+        _out->println("{\"status\":\"rebooting\"}");
         delay(200);
         ESP.restart();
         return true;
@@ -97,24 +97,40 @@ bool ConfigManager::_processLine(const char* line) {
 
     if (strncasecmp(line, "RESET", 5) == 0) {
         reset();
-        Serial0.println("{\"status\":\"factory reset, rebooting\"}");
+        _out->println("{\"status\":\"factory reset, rebooting\"}");
         delay(200);
         ESP.restart();
         return true;
     }
 
+    if (strncasecmp(line, "DMXMON ON", 9) == 0) {
+        _dmxMonitor = true;
+        _out->println("{\"status\":\"dmx monitor ON\"}");
+        return true;
+    }
+
+    if (strncasecmp(line, "DMXMON OFF", 10) == 0) {
+        _dmxMonitor = false;
+        _out->println("{\"status\":\"dmx monitor OFF\"}");
+        return true;
+    }
+
     if (strncasecmp(line, "HELP", 4) == 0) {
-        Serial0.println(
+        _out->println(
             "Commands:\n"
             "  CONFIG {...}   - set config fields (JSON)\n"
             "  STATUS         - print current config\n"
+            "  DMXMON ON|OFF  - toggle live DMX channel monitor\n"
             "  REBOOT         - restart device\n"
             "  RESET          - factory reset\n"
             "  HELP           - this message\n"
             "\nCONFIG fields:\n"
             "  ssid, pass, ip, gw, subnet\n"
             "  artnet_port, u1_artnet, u2_artnet\n"
-            "  u1_mode, u2_mode  (TX|RX|PASS)"
+            "  u1_mode, u2_mode  (TX|RX|PASS)\n"
+            "\nFor DMX relay: set u1_mode=RX and u2_mode=TX (or vice versa),\n"
+            "then reboot. Received frames are automatically forwarded.\n"
+            "Use DMXMON ON to print live channel values."
         );
         return true;
     }
@@ -124,7 +140,7 @@ bool ConfigManager::_processLine(const char* line) {
         JsonDocument doc;
         DeserializationError err = deserializeJson(doc, json);
         if (err) {
-            Serial0.printf("{\"error\":\"JSON parse failed: %s\"}\n", err.c_str());
+            _out->printf("{\"error\":\"JSON parse failed: %s\"}\n", err.c_str());
             return false;
         }
 
@@ -141,7 +157,7 @@ bool ConfigManager::_processLine(const char* line) {
         if (doc["u2_mode"].is<const char*>())  _cfg.u2Mode = _parseMode(doc["u2_mode"]);
 
         save();
-        Serial0.println("{\"status\":\"saved, rebooting\"}");
+        _out->println("{\"status\":\"saved, rebooting\"}");
         delay(200);
         ESP.restart();
         return true;
@@ -149,7 +165,7 @@ bool ConfigManager::_processLine(const char* line) {
 
     // Unknown command — don't print anything if line is empty
     if (line[0] != '\0') {
-        Serial0.printf("{\"error\":\"unknown command: %s\"}\n", line);
+        _out->printf("{\"error\":\"unknown command: %s\"}\n", line);
     }
     return false;
 }

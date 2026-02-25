@@ -1,6 +1,9 @@
 #include "ArtNetNode.h"
 #include <WiFi.h>
+#include <USBCDC.h>
 #include <string.h>
+
+extern USBCDC ConfigSerial;
 
 // Art-Net ID header (8 bytes: "Art-Net\0")
 const uint8_t ArtNetNode::ARTNET_HEADER[8] = {
@@ -21,9 +24,9 @@ void ArtNetNode::begin(const char* nodeName, uint16_t port) {
 
     if (_udp.begin(_port)) {
         _running = true;
-        Serial0.printf("[ArtNet] Listening on UDP port %d\n", _port);
+        ConfigSerial.printf("[ArtNet] Listening on UDP port %d\n", _port);
     } else {
-        Serial0.println("[ArtNet] Failed to start UDP socket");
+        ConfigSerial.println("[ArtNet] Failed to start UDP socket");
     }
 }
 
