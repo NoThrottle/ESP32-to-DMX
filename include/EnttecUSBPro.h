@@ -35,7 +35,13 @@ public:
     // universe: 0 = U1, 1 = U2
     void sendDMXToHost(uint8_t universe, const uint8_t* data, uint16_t len);
 
-    // Call in loop / task — processes incoming USB bytes
+    // Process a single byte from the host.
+    // Returns true if the byte was part of (or started) an ENTTEC frame,
+    // false if it was ignored (not ENTTEC data). Use this when sharing the
+    // stream with another parser — only forward unclaimed bytes elsewhere.
+    bool feedByte(uint8_t b);
+
+    // Call in loop / task — processes all available bytes via feedByte()
     void tick();
 
 private:

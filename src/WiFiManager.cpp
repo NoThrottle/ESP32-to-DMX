@@ -1,9 +1,9 @@
 #include "WiFiManager.h"
 #include "config.h"
 #include <WiFi.h>
-#include <USBCDC.h>
+#include <Stream.h>
 
-extern USBCDC ConfigSerial;
+extern Stream& ConfigSerial;
 
 WiFiManager::WiFiManager() : _apMode(false) {}
 

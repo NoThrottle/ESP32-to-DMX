@@ -76,6 +76,7 @@ public:
 
 private:
     bool _processLine(const char* line);
+    void _scanAndPrintNetworks();
     DMXMode _parseMode(const char* s);
     const char* _modeStr(DMXMode m) const;
 

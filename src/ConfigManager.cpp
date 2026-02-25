@@ -1,6 +1,7 @@
 #include "ConfigManager.h"
 #include "config.h"
 #include <ArduinoJson.h>
+#include <WiFi.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -9,7 +10,7 @@ ConfigManager::ConfigManager() : _lineIdx(0) {
 }
 
 void ConfigManager::load() {
-    _prefs.begin(NVS_NAMESPACE, true);  // read-only
+    _prefs.begin(NVS_NAMESPACE, false);  // read-write: creates namespace on first boot
 
     _prefs.getString("ssid",   _cfg.ssid,   sizeof(_cfg.ssid));
     _prefs.getString("pass",   _cfg.pass,   sizeof(_cfg.pass));
@@ -115,11 +116,17 @@ bool ConfigManager::_processLine(const char* line) {
         return true;
     }
 
+    if (strncasecmp(line, "WIFISCAN", 8) == 0) {
+        _scanAndPrintNetworks();
+        return true;
+    }
+
     if (strncasecmp(line, "HELP", 4) == 0) {
         _out->println(
             "Commands:\n"
             "  CONFIG {...}   - set config fields (JSON)\n"
             "  STATUS         - print current config\n"
+            "  WIFISCAN       - scan for WiFi networks (returns JSON)\n"
             "  DMXMON ON|OFF  - toggle live DMX channel monitor\n"
             "  REBOOT         - restart device\n"
             "  RESET          - factory reset\n"
@@ -197,5 +204,41 @@ const char* ConfigManager::_modeStr(DMXMode m) const {
     case DMXMode::RX:          return "RX";
     case DMXMode::PASSTHROUGH: return "PASS";
     default:                   return "TX";
+    }
+}
+
+void ConfigManager::_scanAndPrintNetworks() {
+    // Ensure WiFi is in a mode that supports scanning
+    wifi_mode_t prevMode = WiFi.getMode();
+    bool modeChanged = false;
+    if (prevMode == WIFI_MODE_AP) {
+        WiFi.mode(WIFI_AP_STA);
+        modeChanged = true;
+    } else if (prevMode == WIFI_MODE_NULL) {
+        WiFi.mode(WIFI_STA);
+        modeChanged = true;
+    }
+
+    int n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/false);
+
+    JsonDocument doc;
+    if (n < 0) {
+        doc["error"] = "scan failed";
+    } else {
+        JsonArray arr = doc["networks"].to<JsonArray>();
+        for (int i = 0; i < n && i < 30; i++) {
+            JsonObject net = arr.add<JsonObject>();
+            net["ssid"]   = WiFi.SSID(i);
+            net["rssi"]   = WiFi.RSSI(i);
+            net["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+        }
+    }
+    serializeJson(doc, *_out);
+    _out->println();
+    WiFi.scanDelete();
+
+    // Restore previous mode if changed
+    if (modeChanged) {
+        WiFi.mode(prevMode);
     }
 }

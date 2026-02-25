@@ -1,9 +1,9 @@
 #include "ArtNetNode.h"
 #include <WiFi.h>
-#include <USBCDC.h>
+#include <Stream.h>
 #include <string.h>
 
-extern USBCDC ConfigSerial;
+extern Stream& ConfigSerial;
 
 // Art-Net ID header (8 bytes: "Art-Net\0")
 const uint8_t ArtNetNode::ARTNET_HEADER[8] = {

@@ -12,56 +12,67 @@ void EnttecUSBPro::begin() {
 }
 
 // ---------------------------------------------------------------------------
+//  feedByte() — process one byte; returns true if consumed as ENTTEC data
+// ---------------------------------------------------------------------------
+bool EnttecUSBPro::feedByte(uint8_t b) {
+    if (_state == ParseState::WAIT_START && b != START_BYTE) {
+        return false;  // not our byte
+    }
+
+    switch (_state) {
+    case ParseState::WAIT_START:
+        // b == START_BYTE guaranteed here
+        _state = ParseState::LABEL;
+        break;
+
+    case ParseState::LABEL:
+        _label = b;
+        _state = ParseState::LEN_LO;
+        break;
+
+    case ParseState::LEN_LO:
+        _dataLen = b;
+        _state   = ParseState::LEN_HI;
+        break;
+
+    case ParseState::LEN_HI:
+        _dataLen |= ((uint16_t)b << 8);
+        _dataIdx  = 0;
+        if (_dataLen == 0) {
+            _state = ParseState::WAIT_END;
+        } else if (_dataLen <= sizeof(_buf)) {
+            _state = ParseState::DATA;
+        } else {
+            _state = ParseState::WAIT_START;  // too large, discard
+        }
+        break;
+
+    case ParseState::DATA:
+        _buf[_dataIdx++] = b;
+        if (_dataIdx >= _dataLen) {
+            _state = ParseState::WAIT_END;
+        }
+        break;
+
+    case ParseState::WAIT_END:
+        if (b == END_BYTE) {
+            _processPacket(_label, _buf, _dataLen);
+        }
+        _state = ParseState::WAIT_START;
+        break;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 //  tick() — call frequently; parses incoming ENTTEC frames from USB host
 // ---------------------------------------------------------------------------
 void EnttecUSBPro::tick() {
     while (_usb.available()) {
-        uint8_t b = (uint8_t)_usb.read();
-
-        switch (_state) {
-        case ParseState::WAIT_START:
-            if (b == START_BYTE) _state = ParseState::LABEL;
-            break;
-
-        case ParseState::LABEL:
-            _label = b;
-            _state = ParseState::LEN_LO;
-            break;
-
-        case ParseState::LEN_LO:
-            _dataLen = b;
-            _state   = ParseState::LEN_HI;
-            break;
-
-        case ParseState::LEN_HI:
-            _dataLen |= ((uint16_t)b << 8);
-            _dataIdx  = 0;
-            if (_dataLen == 0) {
-                _state = ParseState::WAIT_END;
-            } else if (_dataLen <= sizeof(_buf)) {
-                _state = ParseState::DATA;
-            } else {
-                // Too large — discard
-                _state = ParseState::WAIT_START;
-            }
-            break;
-
-        case ParseState::DATA:
-            _buf[_dataIdx++] = b;
-            if (_dataIdx >= _dataLen) {
-                _state = ParseState::WAIT_END;
-            }
-            break;
-
-        case ParseState::WAIT_END:
-            if (b == END_BYTE) {
-                _processPacket(_label, _buf, _dataLen);
-            }
-            _state = ParseState::WAIT_START;
-            break;
-        }
+        feedByte((uint8_t)_usb.read());
     }
 }
+
 
 // ---------------------------------------------------------------------------
 //  Process a fully-received ENTTEC packet
