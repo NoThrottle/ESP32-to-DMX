@@ -89,6 +89,7 @@ class ESP32DMXConfig:
         wf = ttk.LabelFrame(parent, text="WiFi", padding=8)
         wf.pack(fill="x", pady=(0, 8))
 
+        self._btns: list[ttk.Button] = []
         self._wifi = {}
         rows = [
             ("SSID:",       "ssid",   False),
@@ -125,10 +126,8 @@ class ESP32DMXConfig:
 
         self._u1_mode  = tk.StringVar(value="TX")
         self._u2_mode  = tk.StringVar(value="TX")
-        self._u3_mode  = tk.StringVar(value="TX")
         self._u1_artnet = tk.StringVar(value="0")
         self._u2_artnet = tk.StringVar(value="1")
-        self._u3_artnet = tk.StringVar(value="2")
         self._artnet_port = tk.StringVar(value="6454")
 
         modes = ["TX", "RX", "PASS"]
@@ -146,25 +145,22 @@ class ESP32DMXConfig:
 
         dmx_row(0, "Universe 1 Mode:", self._u1_mode, self._u1_artnet)
         dmx_row(1, "Universe 2 Mode:", self._u2_mode, self._u2_artnet)
-        dmx_row(2, "Universe 3 Mode:", self._u3_mode, self._u3_artnet)
 
         ttk.Label(df, text="Art-Net UDP Port:").grid(
-            row=3, column=0, sticky="e", padx=(4, 6), pady=3)
+            row=2, column=0, sticky="e", padx=(4, 6), pady=3)
         ttk.Entry(df, textvariable=self._artnet_port, width=8).grid(
-            row=3, column=1, sticky="w", pady=3)
+            row=2, column=1, sticky="w", pady=3)
 
         hint = ttk.Label(
             df,
-            text="Loopback test: set U1=TX, U2=RX and wire the DMX connectors together.",
+            text="Loopback test: set U1=TX, U2=RX and wire GPIO6 → GPIO11.",
             foreground="#0066aa",
         )
-        hint.grid(row=4, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
+        hint.grid(row=3, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
 
         # Action buttons -------------------------------------------------------
         bf = ttk.Frame(parent)
         bf.pack(fill="x", pady=(4, 0))
-
-        self._btns: list[ttk.Button] = []
 
         def mkbtn(text, cmd):
             b = ttk.Button(bf, text=text, command=cmd, state="disabled")
@@ -172,10 +168,10 @@ class ESP32DMXConfig:
             self._btns.append(b)
             return b
 
-        mkbtn("Read Status",    self._read_status)
-        mkbtn("Apply & Reboot", self._apply_config)
-        mkbtn("Reboot Device",  self._reboot)
-        mkbtn("Factory Reset",  self._factory_reset)
+        mkbtn("Read Status",  self._read_status)
+        mkbtn("Apply",         self._apply_config)
+        mkbtn("Reboot Device", self._reboot)
+        mkbtn("Factory Reset", self._factory_reset)
 
     # ── Monitor tab ───────────────────────────────────────────────────────
 
@@ -301,6 +297,10 @@ class ESP32DMXConfig:
             except queue.Empty:
                 break
             self._log(line)
+            # After "applied" confirmation, refresh status after a short delay
+            # to pick up the new IP if WiFi reconnected
+            if '"status":"applied"' in line:
+                self.root.after(3000, self._read_status)
             if self._waiting_status:
                 self._status_buf += line
                 # The STATUS response is one JSON line starting with '{'
@@ -386,17 +386,20 @@ class ESP32DMXConfig:
         self._artnet_port.set(str(d.get("artnet_port", 6454)))
         self._u1_artnet.set(str(d.get("u1_artnet", 0)))
         self._u2_artnet.set(str(d.get("u2_artnet", 1)))
-        self._u3_artnet.set(str(d.get("u3_artnet", 2)))
         self._u1_mode.set(d.get("u1_mode", "TX"))
         self._u2_mode.set(d.get("u2_mode", "TX"))
-        self._u3_mode.set(d.get("u3_mode", "TX"))
+
+        # Show RX frame counts in the monitor tab as a diagnostic line
+        u1_rx = d.get("u1_rx_frames", 0)
+        u2_rx = d.get("u2_rx_frames", 0)
+        if u1_rx or u2_rx:
+            self._log(f"[RX frames: U1={u1_rx}  U2={u2_rx}]\n")
 
     def _apply_config(self):
         try:
             art_port = int(self._artnet_port.get())
             u1_art   = int(self._u1_artnet.get())
             u2_art   = int(self._u2_artnet.get())
-            u3_art   = int(self._u3_artnet.get())
         except ValueError:
             messagebox.showerror("Validation Error",
                                  "Art-Net port and universe numbers must be integers.")
@@ -414,10 +417,8 @@ class ESP32DMXConfig:
             "artnet_port": art_port,
             "u1_artnet":   u1_art,
             "u2_artnet":   u2_art,
-            "u3_artnet":   u3_art,
             "u1_mode":     self._u1_mode.get(),
             "u2_mode":     self._u2_mode.get(),
-            "u3_mode":     self._u3_mode.get(),
         }
         pw = self._wifi["pass"].get()
         if pw:
@@ -426,8 +427,8 @@ class ESP32DMXConfig:
         cmd = f"CONFIG {json.dumps(cfg)}\n"
         self._log(f"> {cmd}")
         self._send(cmd)
-        # Device reboots ~200 ms after receiving CONFIG — disconnect gracefully
-        self.root.after(1500, self._disconnect)
+        # Device applies settings live — no reboot, stay connected
+        self._log("[Config sent. Device will reconnect WiFi if credentials changed.]\n")
 
     def _reboot(self):
         if messagebox.askyesno("Reboot", "Reboot the ESP32 now?"):

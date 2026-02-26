@@ -33,7 +33,10 @@ public:
 
     // Send a received DMX frame back to the host (RX mode forwarding)
     // universe: 0 = U1, 1 = U2
+    // Only sends if the host has requested DMX receive (label 0x08)
     void sendDMXToHost(uint8_t universe, const uint8_t* data, uint16_t len);
+
+    bool isDmxRxEnabled() const { return _dmxRxEnabled; }
 
     // Process a single byte from the host.
     // Returns true if the byte was part of (or started) an ENTTEC frame,
@@ -53,11 +56,14 @@ private:
     static const uint8_t LABEL_RECV_DMX        = 0x05;
     static const uint8_t LABEL_GET_SERIAL      = 0x0A;
     static const uint8_t LABEL_DMX_TX_U2       = 0x64;  // extended
+    static const uint8_t LABEL_RX_DMX_ON_CHG   = 0x08;  // host requests RX stream
 
     void _processPacket(uint8_t label, const uint8_t* data, uint16_t len);
     void _sendPacket(uint8_t label, const uint8_t* data, uint16_t len);
     void _handleGetParams();
     void _handleGetSerial();
+
+    bool _dmxRxEnabled = false;  // true after host sends label 0x08 (Receive DMX)
 
     Stream& _usb;
     EnttecFrameCallback _frameCb;

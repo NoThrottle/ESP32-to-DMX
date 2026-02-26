@@ -101,6 +101,11 @@ void EnttecUSBPro::_processPacket(uint8_t label, const uint8_t* data, uint16_t l
         }
         break;
 
+    case LABEL_RX_DMX_ON_CHG:
+        // Host is requesting live DMX RX frames — enable outbound stream
+        _dmxRxEnabled = true;
+        break;
+
     default:
         break;
     }
@@ -111,6 +116,10 @@ void EnttecUSBPro::_processPacket(uint8_t label, const uint8_t* data, uint16_t l
 //  universe: 0=U1, 1=U2
 // ---------------------------------------------------------------------------
 void EnttecUSBPro::sendDMXToHost(uint8_t universe, const uint8_t* data, uint16_t len) {
+    // Only send if a proper ENTTEC host has requested the RX stream (label 0x08).
+    // Without this guard, raw binary frames would corrupt any text terminal session.
+    if (!_dmxRxEnabled) return;
+
     // Payload: start code 0x00 + channel data
     // Max 513 bytes
     uint16_t payloadLen = min((uint16_t)(len + 1), (uint16_t)513);

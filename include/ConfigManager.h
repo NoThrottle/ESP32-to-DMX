@@ -64,6 +64,10 @@ public:
     // Returns true if WiFi credentials have been configured
     bool hasWiFiCredentials() const;
 
+    // Returns true (once) if a CONFIG command was received since last call.
+    // Caller should reconnect WiFi / re-init DMX after checking this.
+    bool wasUpdated() { bool v = _configUpdated; _configUpdated = false; return v; }
+
     // Set the output stream for all terminal responses (call before first feedChar)
     void setOutput(Stream& s) { _out = &s; }
 
@@ -71,8 +75,17 @@ public:
     // Returns true if a full command was processed
     bool feedChar(char c);
 
+    // Supply live RX frame/byte count pointers so STATUS includes them.
+    // Call once in setup() after DMXPorts are constructed.
+    void setRxCounters(const uint32_t* u1Frames, const uint32_t* u2Frames,
+                       const uint32_t* u1Bytes,  const uint32_t* u2Bytes) {
+        _u1RxCount = u1Frames;  _u2RxCount = u2Frames;
+        _u1RxBytes = u1Bytes;   _u2RxBytes = u2Bytes;
+    }
+
     // Print current config as JSON to given stream
-    void printStatus(Stream& out) const;
+    void printStatus(Stream& out,
+                     uint32_t u1RxFrames = 0, uint32_t u2RxFrames = 0) const;
 
 private:
     bool _processLine(const char* line);
@@ -82,9 +95,14 @@ private:
 
     DMXNodeConfig _cfg;
     Preferences   _prefs;
-    bool          _dmxMonitor = false;
-    Stream*       _out        = nullptr;
+    bool          _dmxMonitor  = false;
+    Stream*       _out         = nullptr;
+    const uint32_t* _u1RxCount = nullptr;
+    const uint32_t* _u2RxCount = nullptr;
+    const uint32_t* _u1RxBytes = nullptr;
+    const uint32_t* _u2RxBytes = nullptr;
 
     char     _lineBuf[512];
     uint16_t _lineIdx;
+    bool     _configUpdated = false;
 };

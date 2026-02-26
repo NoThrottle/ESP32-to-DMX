@@ -4,13 +4,25 @@
 //  ESP32-C6 DMX Node – Hardware & Default Configuration
 // ============================================================
 //  Board: ESP32-C6-DevKitC-1 (15 pins/side, dual USB-C)
+//         Module: ESP32-C6-WROOM-1
 //  Two MAX485 transceivers on UART0 and UART1
+//
+//  Reserved / avoid on DevKitC-1:
+//    GPIO8  – onboard WS2812 RGB LED
+//    GPIO9  – BOOT strapping pin (active-low; driving LOW at boot → download mode)
+//    GPIO12 – USB Serial/JTAG D−  (native USB debug port)
+//    GPIO13 – USB Serial/JTAG D+
+//    GPIO16 – CH340 UART bridge RX (UART0 default TX — repurposed, see below)
+//    GPIO17 – CH340 UART bridge TX (UART0 default RX)
+//
+//  GPIO4–7 are legacy JTAG pins (MTDI/MTDO/MTCK/MTMS) but are free for
+//  general use because the C6 uses USB-JTAG (GPIO12/13), not these pins.
 // ============================================================
 
-// --- Universe 1: UART0 (also connected to CH340 bridge) ----
-#define DMX_U1_UART_NUM     0           // UART index (HardwareSerial)
-#define DMX_U1_TX_PIN       16          // MAX485 DI
-#define DMX_U1_RX_PIN       17          // MAX485 RO
+// --- Universe 1: UART0 (remapped away from CH340 pins 16/17) ---
+#define DMX_U1_UART_NUM     0           // UART index (HardwareSerial → Serial0)
+#define DMX_U1_TX_PIN       6           // MAX485 DI  (GPIO6 = MTCK — safe)
+#define DMX_U1_RX_PIN       7           // MAX485 RO  (GPIO7 = MTMS — safe)
 #define DMX_U1_DERE_PIN     4           // MAX485 DE + /RE (HIGH=TX, LOW=RX)
 
 // --- Universe 2: UART1 -------------------------------------- 

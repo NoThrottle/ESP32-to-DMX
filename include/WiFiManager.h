@@ -19,6 +19,9 @@ public:
     // Returns true if STA connected, false if AP started
     bool begin(const DMXNodeConfig& cfg);
 
+    // Reconnect with new credentials without rebooting (call after CONFIG change)
+    bool reconnect(const DMXNodeConfig& cfg);
+
     bool isConnected()  const;
     bool isAPMode()     const { return _apMode; }
     IPAddress localIP() const { return WiFi.localIP(); }

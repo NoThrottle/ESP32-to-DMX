@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <WiFiUdp.h>
 #include <functional>
+#include <vector>
 
 // ============================================================
 //  ArtNetNode – Art-Net 4 UDP node (transmit + receive)
@@ -57,4 +58,5 @@ private:
     uint8_t  _txBuf[530];
 
     uint8_t  _sequence;  // rolling ArtDmx sequence counter
+    std::vector<uint16_t> _seenOpcodes;
 };

@@ -85,7 +85,9 @@ bool ConfigManager::_processLine(const char* line) {
     while (*line == ' ') ++line;
 
     if (strncasecmp(line, "STATUS", 6) == 0) {
-        printStatus(*_out);
+        printStatus(*_out,
+                    _u1RxCount ? *_u1RxCount : 0,
+                    _u2RxCount ? *_u2RxCount : 0);
         return true;
     }
 
@@ -164,9 +166,8 @@ bool ConfigManager::_processLine(const char* line) {
         if (doc["u2_mode"].is<const char*>())  _cfg.u2Mode = _parseMode(doc["u2_mode"]);
 
         save();
-        _out->println("{\"status\":\"saved, rebooting\"}");
-        delay(200);
-        ESP.restart();
+        _configUpdated = true;
+        _out->println("{\"status\":\"saved\"}");
         return true;
     }
 
@@ -177,7 +178,9 @@ bool ConfigManager::_processLine(const char* line) {
     return false;
 }
 
-void ConfigManager::printStatus(Stream& out) const {
+void ConfigManager::printStatus(Stream& out,
+                                uint32_t u1RxFrames,
+                                uint32_t u2RxFrames) const {
     JsonDocument doc;
     doc["ssid"]        = _cfg.ssid;
     doc["ip"]          = _cfg.ip;
@@ -188,6 +191,10 @@ void ConfigManager::printStatus(Stream& out) const {
     doc["u2_artnet"]   = _cfg.u2Artnet;
     doc["u1_mode"]     = _modeStr(_cfg.u1Mode);
     doc["u2_mode"]     = _modeStr(_cfg.u2Mode);
+    doc["u1_rx_frames"] = u1RxFrames;
+    doc["u2_rx_frames"] = u2RxFrames;
+    doc["u1_rx_bytes"]  = _u1RxBytes ? *_u1RxBytes : 0;
+    doc["u2_rx_bytes"]  = _u2RxBytes ? *_u2RxBytes : 0;
     doc["firmware"]    = "1.0.0";
     serializeJson(doc, out);
     out.println();

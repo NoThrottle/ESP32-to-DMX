@@ -55,6 +55,21 @@ void WiFiManager::_startAP() {
     _apMode = true;
 }
 
+bool WiFiManager::reconnect(const DMXNodeConfig& cfg) {
+    WiFi.disconnect(true);
+    delay(100);
+    _apMode = false;
+    if (cfg.ssid[0] != '\0') {
+        WiFi.mode(WIFI_STA);
+        if (_startSTA(cfg)) return true;
+        ConfigSerial.println("[WiFi] Reconnect failed, falling back to AP mode");
+    } else {
+        ConfigSerial.println("[WiFi] No credentials, starting AP mode");
+    }
+    _startAP();
+    return false;
+}
+
 bool WiFiManager::isConnected() const {
     return _apMode ? true : (WiFi.status() == WL_CONNECTED);
 }

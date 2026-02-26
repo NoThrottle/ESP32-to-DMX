@@ -43,7 +43,24 @@ void ArtNetNode::tick() {
     if (n < 10) return;
 
     uint16_t opcode;
-    if (!_parseHeader(_rxBuf, (uint16_t)n, opcode)) return;
+    if (!_parseHeader(_rxBuf, (uint16_t)n, opcode)) {
+        ConfigSerial.println("[ArtNet] Header parse failed (not Art-Net?)");
+        return;
+    }
+
+    bool seen = false;
+    for (uint16_t s : _seenOpcodes) { if (s == opcode) { seen = true; break; } }
+    if (!seen) {
+        _seenOpcodes.push_back(opcode);
+        const char* name;
+        switch (opcode) {
+        case OP_POLL:       name = "ArtPoll";      break;
+        case OP_POLL_REPLY: name = "ArtPollReply"; break;
+        case OP_DMX:        name = "ArtDmx";       break;
+        default:            name = "(unknown)";    break;
+        }
+        ConfigSerial.printf("[ArtNet] New opcode: %s (0x%04X)\n", name, opcode);
+    }
 
     switch (opcode) {
     case OP_POLL:
