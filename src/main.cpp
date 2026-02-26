@@ -69,8 +69,9 @@ void dmxTxTask(void* /*param*/) {
 void dmxRxTask(void* /*param*/) {
     for (;;) {
         dmxU2.tick();
-        // No extra delay: dmx_receive() inside tick() already blocks up to 25 ms,
-        // which yields the CPU naturally. loop() at priority 1 runs in that gap.
+        // Fallback delay in case the port is in TX mode or error state,
+        // to prevent busy loops and WDT resets.
+        vTaskDelay(1 / portTICK_PERIOD_MS);
     }
 }
 

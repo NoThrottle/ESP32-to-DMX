@@ -62,6 +62,7 @@ void DMXPort::tick() {
     dmx_port_t port = (dmx_port_t)_portIdx;
 
     if (_mode == DMXMode::TX) {
+        dmx_wait_sent(port, pdMS_TO_TICKS(50));
         dmx_write(port, _txBuf, DMX_PACKET_SIZE);
         dmx_send(port);
     }
