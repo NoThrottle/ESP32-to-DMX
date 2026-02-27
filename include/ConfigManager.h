@@ -87,6 +87,12 @@ public:
     void printStatus(Stream& out,
                      uint32_t u1RxFrames = 0, uint32_t u2RxFrames = 0) const;
 
+    // Apply JSON config directly from string
+    bool applyConfigJSON(const char* json, String& responseMsg);
+
+    // Get current config as JSON string
+    String getStatusJSON() const;
+
 private:
     bool _processLine(const char* line);
     void _scanAndPrintNetworks();

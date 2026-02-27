@@ -31,6 +31,7 @@ Stream& ConfigSerial = Serial;
 #include "ArtNetNode.h"
 #include "WiFiManager.h"
 #include "EnttecUSBPro.h"
+#include <WebServer.h>
 
 // ---------------------------------------------------------------------------
 //  Global objects
@@ -43,6 +44,7 @@ EnttecUSBPro    enttec(Serial);  // ENTTEC wire protocol over native USB HWCDC
 
 ArtNetNode      artnet;
 WiFiManager     wifiMgr;
+WebServer       webServer(80);
 
 // ---------------------------------------------------------------------------
 //  FreeRTOS tasks
@@ -180,6 +182,122 @@ static void ledBlink(uint8_t times, uint32_t ms = 100) {
 }
 
 // ---------------------------------------------------------------------------
+//  WebServer handlers & HTML UI
+// ---------------------------------------------------------------------------
+const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 DMX Config</title>
+  <style>
+    body { font-family: Roboto, sans-serif; background: #121212; color: #ffffff; padding: 20px; max-width: 600px; margin: 0 auto; }
+    h2 { border-bottom: 1px solid #333; padding-bottom: 10px; }
+    .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    label { display: block; margin-top: 10px; font-weight: bold; color: #aaa; font-size: 0.9em; }
+    input, select { width: 100%; padding: 10px; margin-top: 5px; border-radius: 4px; border: 1px solid #444; background: #2c2c2c; color: #fff; box-sizing: border-box; }
+    button { background: #4caf50; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 15px; width: 100%; transition: background 0.3s; }
+    button:hover { background: #45a049; }
+    .status { margin-top: 10px; color: #4caf50; font-size: 0.9em; text-align: center; min-height: 20px; }
+    .row { display: flex; gap: 15px; }
+    .col { flex: 1; }
+  </style>
+</head>
+<body>
+  <h2>ESP32 DMX Configuration</h2>
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <label>U1 Mode</label>
+        <select id="u1_mode"><option value="TX">TX</option><option value="RX">RX</option><option value="PASS">PASS</option></select>
+      </div>
+      <div class="col">
+        <label>U1 Art-Net Universe</label>
+        <input type="number" id="u1_artnet">
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <label>U2 Mode</label>
+        <select id="u2_mode"><option value="TX">TX</option><option value="RX">RX</option><option value="PASS">PASS</option></select>
+      </div>
+      <div class="col">
+        <label>U2 Art-Net Universe</label>
+        <input type="number" id="u2_artnet">
+      </div>
+    </div>
+    <label>Art-Net Port</label>
+    <input type="number" id="artnet_port">
+  </div>
+  
+  <div class="card">
+    <label>WiFi SSID</label>
+    <input type="text" id="ssid">
+    <label>WiFi Password</label>
+    <input type="password" id="pass" placeholder="(unchanged if blank)">
+    <label>Static IP (Leave blank for DHCP)</label>
+    <input type="text" id="ip" placeholder="e.g. 192.168.1.50">
+    <button onclick="saveConfig()">Save Configuration</button>
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    function loadConfig() {
+      fetch('/api/status').then(r => r.json()).then(data => {
+        ['ssid', 'ip', 'artnet_port', 'u1_artnet', 'u2_artnet', 'u1_mode', 'u2_mode'].forEach(k => {
+          if (document.getElementById(k)) document.getElementById(k).value = data[k] || '';
+        });
+      });
+    }
+    function saveConfig() {
+      const data = {};
+      ['ssid', 'pass', 'ip', 'artnet_port', 'u1_artnet', 'u2_artnet', 'u1_mode', 'u2_mode'].forEach(k => {
+        const val = document.getElementById(k).value;
+        if (val) data[k] = val;
+      });
+      data.artnet_port = parseInt(data.artnet_port);
+      data.u1_artnet = parseInt(data.u1_artnet);
+      data.u2_artnet = parseInt(data.u2_artnet);
+      
+      document.getElementById('status').innerText = 'Saving...';
+      fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      }).then(r => r.json()).then(res => {
+        document.getElementById('status').innerText = res.status || res.error || 'Done. Device applying changes...';
+        setTimeout(() => document.getElementById('status').innerText = '', 3000);
+      });
+    }
+    window.onload = loadConfig;
+  </script>
+</body>
+</html>
+)rawliteral";
+
+void handleRoot() {
+    webServer.send(200, "text/html", INDEX_HTML);
+}
+
+void handleApiStatus() {
+    webServer.send(200, "application/json", cfgMgr.getStatusJSON());
+}
+
+void handleApiConfig() {
+    if (webServer.hasArg("plain")) {
+        String json = webServer.arg("plain");
+        String responseMsg;
+        if (cfgMgr.applyConfigJSON(json.c_str(), responseMsg)) {
+            webServer.send(200, "application/json", responseMsg);
+        } else {
+            webServer.send(400, "application/json", responseMsg);
+        }
+    } else {
+        webServer.send(400, "application/json", "{\"error\":\"No payload\"}");
+    }
+}
+
+// ---------------------------------------------------------------------------
 //  setup()
 // ---------------------------------------------------------------------------
 void setup() {
@@ -238,6 +356,13 @@ void setup() {
                       cfg.u1Artnet, cfg.u2Artnet);
     }
 
+    // --- WebServer ---
+    webServer.on("/", HTTP_GET, handleRoot);
+    webServer.on("/api/status", HTTP_GET, handleApiStatus);
+    webServer.on("/api/config", HTTP_POST, handleApiConfig);
+    webServer.begin();
+    ConfigSerial.println("[WebServer] Started on port 80");
+
     // --- DMX FreeRTOS tasks ---
     // TX at priority 5 (non-blocking, 1 ms yield keeps loop() responsive)
     // RX at priority 5 (dmx_receive blocks 25 ms naturally, yielding to loop())
@@ -256,7 +381,11 @@ void setup() {
 // ---------------------------------------------------------------------------
 //  loop() runs on Core 0 — handles Art-Net and config serial
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 void loop() {
+    // Process incoming Web requests
+    webServer.handleClient();
+
     // Process Art-Net UDP packets
     artnet.tick();
 

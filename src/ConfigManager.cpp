@@ -146,29 +146,10 @@ bool ConfigManager::_processLine(const char* line) {
 
     if (strncasecmp(line, "CONFIG ", 7) == 0) {
         const char* json = line + 7;
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, json);
-        if (err) {
-            _out->printf("{\"error\":\"JSON parse failed: %s\"}\n", err.c_str());
-            return false;
-        }
-
-        if (doc["ssid"].is<const char*>())   strncpy(_cfg.ssid,   doc["ssid"],   sizeof(_cfg.ssid)-1);
-        if (doc["pass"].is<const char*>())   strncpy(_cfg.pass,   doc["pass"],   sizeof(_cfg.pass)-1);
-        if (doc["ip"].is<const char*>())     strncpy(_cfg.ip,     doc["ip"],     sizeof(_cfg.ip)-1);
-        if (doc["gw"].is<const char*>())     strncpy(_cfg.gw,     doc["gw"],     sizeof(_cfg.gw)-1);
-        if (doc["subnet"].is<const char*>()) strncpy(_cfg.subnet, doc["subnet"], sizeof(_cfg.subnet)-1);
-
-        if (doc["artnet_port"].is<uint16_t>()) _cfg.artnetPort = doc["artnet_port"];
-        if (doc["u1_artnet"].is<uint16_t>())   _cfg.u1Artnet   = doc["u1_artnet"];
-        if (doc["u2_artnet"].is<uint16_t>())   _cfg.u2Artnet   = doc["u2_artnet"];
-        if (doc["u1_mode"].is<const char*>())  _cfg.u1Mode = _parseMode(doc["u1_mode"]);
-        if (doc["u2_mode"].is<const char*>())  _cfg.u2Mode = _parseMode(doc["u2_mode"]);
-
-        save();
-        _configUpdated = true;
-        _out->println("{\"status\":\"saved\"}");
-        return true;
+        String responseMsg;
+        bool ok = applyConfigJSON(json, responseMsg);
+        _out->println(responseMsg);
+        return ok;
     }
 
     // Unknown command — don't print anything if line is empty
@@ -198,6 +179,54 @@ void ConfigManager::printStatus(Stream& out,
     doc["firmware"]    = "1.0.0";
     serializeJson(doc, out);
     out.println();
+}
+
+bool ConfigManager::applyConfigJSON(const char* json, String& responseMsg) {
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, json);
+    if (err) {
+        responseMsg = String("{\"error\":\"JSON parse failed: ") + err.c_str() + "\"}";
+        return false;
+    }
+
+    if (doc["ssid"].is<const char*>())   strncpy(_cfg.ssid,   doc["ssid"],   sizeof(_cfg.ssid)-1);
+    // Don't overwrite password if it's sent empty occasionally, though we just trust the client
+    if (doc["pass"].is<const char*>())   strncpy(_cfg.pass,   doc["pass"],   sizeof(_cfg.pass)-1);
+    if (doc["ip"].is<const char*>())     strncpy(_cfg.ip,     doc["ip"],     sizeof(_cfg.ip)-1);
+    if (doc["gw"].is<const char*>())     strncpy(_cfg.gw,     doc["gw"],     sizeof(_cfg.gw)-1);
+    if (doc["subnet"].is<const char*>()) strncpy(_cfg.subnet, doc["subnet"], sizeof(_cfg.subnet)-1);
+
+    if (doc["artnet_port"].is<uint16_t>()) _cfg.artnetPort = doc["artnet_port"];
+    if (doc["u1_artnet"].is<uint16_t>())   _cfg.u1Artnet   = doc["u1_artnet"];
+    if (doc["u2_artnet"].is<uint16_t>())   _cfg.u2Artnet   = doc["u2_artnet"];
+    if (doc["u1_mode"].is<const char*>())  _cfg.u1Mode = _parseMode(doc["u1_mode"]);
+    if (doc["u2_mode"].is<const char*>())  _cfg.u2Mode = _parseMode(doc["u2_mode"]);
+
+    save();
+    _configUpdated = true;
+    responseMsg = "{\"status\":\"saved\"}";
+    return true;
+}
+
+String ConfigManager::getStatusJSON() const {
+    JsonDocument doc;
+    doc["ssid"]        = _cfg.ssid;
+    doc["ip"]          = _cfg.ip;
+    doc["gw"]          = _cfg.gw;
+    doc["subnet"]      = _cfg.subnet;
+    doc["artnet_port"] = _cfg.artnetPort;
+    doc["u1_artnet"]   = _cfg.u1Artnet;
+    doc["u2_artnet"]   = _cfg.u2Artnet;
+    doc["u1_mode"]     = _modeStr(_cfg.u1Mode);
+    doc["u2_mode"]     = _modeStr(_cfg.u2Mode);
+    doc["u1_rx_frames"] = _u1RxCount ? *_u1RxCount : 0;
+    doc["u2_rx_frames"] = _u2RxCount ? *_u2RxCount : 0;
+    doc["u1_rx_bytes"]  = _u1RxBytes ? *_u1RxBytes : 0;
+    doc["u2_rx_bytes"]  = _u2RxBytes ? *_u2RxBytes : 0;
+    doc["firmware"]    = "1.0.0";
+    String out;
+    serializeJson(doc, out);
+    return out;
 }
 
 DMXMode ConfigManager::_parseMode(const char* s) {
